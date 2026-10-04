@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../data/card_repository.dart';
 import '../data/folder_repository.dart';
+import '../data/rich_text_codec.dart';
 import '../models/flashcard.dart';
 import '../models/folder.dart';
 import '../theme/app_theme.dart';
@@ -361,6 +362,7 @@ class _FolderTile extends StatelessWidget {
 }
 
 /// One card row: the question, a one-line preview of the answer, and a menu.
+/// The stored text is formatted, so we show just the words (no formatting).
 class _CardTile extends StatelessWidget {
   const _CardTile({
     required this.card,
@@ -393,13 +395,13 @@ class _CardTile extends StatelessWidget {
           child: const Icon(Icons.style_rounded, color: AppColors.primary),
         ),
         title: Text(
-          card.front,
+          RichTextCodec.plainText(card.front),
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
           style: textTheme.titleMedium,
         ),
         subtitle: Text(
-          card.back,
+          RichTextCodec.plainText(card.back),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: textTheme.bodyMedium?.copyWith(color: AppColors.textMuted),

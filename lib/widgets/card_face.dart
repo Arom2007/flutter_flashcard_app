@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
+import 'rich_content.dart';
 
-/// One side of a card: a small label at the top and the text centered.
+/// One side of a card: a small label at the top and the content centered.
 class CardFace extends StatelessWidget {
   const CardFace({
     super.key,
@@ -12,6 +13,10 @@ class CardFace extends StatelessWidget {
   });
 
   final String label;
+
+  /// The card's stored content: rich text (JSON) or plain text from older
+  /// cards. RichContent understands both. (The name 'text' is kept so the
+  /// study and viewer screens don't need to change.)
   final String text;
   final bool tinted; // the answer side gets a soft blue background
 
@@ -38,12 +43,13 @@ class CardFace extends StatelessWidget {
           ),
           Expanded(
             child: Center(
-              // If the text is very long, the card scrolls instead of overflowing.
+              // If the content is very long, the card scrolls.
               child: SingleChildScrollView(
-                child: Text(
-                  text,
-                  textAlign: TextAlign.center,
-                  style: textTheme.headlineSmall,
+                // Full width, so the alignment buttons (left / center /
+                // right) have room to show their effect.
+                child: SizedBox(
+                  width: double.infinity,
+                  child: RichContent(content: text),
                 ),
               ),
             ),
@@ -52,4 +58,4 @@ class CardFace extends StatelessWidget {
       ),
     );
   }
-} 
+}
