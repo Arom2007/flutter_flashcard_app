@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
 
+import '../data/card_repository.dart';
 import '../data/folder_repository.dart';
+import '../models/flashcard.dart';
 import '../models/folder.dart';
 import '../theme/app_theme.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/name_dialog.dart';
+import 'card_editor_screen.dart';
+import 'card_view_screen.dart';
 
-/// Shows the folders inside one place. With no [parent] it is the home
-/// screen (top level). Tapping a folder opens another LibraryScreen for
-/// it, so the same screen handles any depth of nesting.
+/// Shows what's inside one place: subfolders and (inside a folder) cards.
+/// With no [parent] it is the home screen (top level, folders only).
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key, this.parent});
 
@@ -19,41 +22,50 @@ class LibraryScreen extends StatefulWidget {
 }
 
 class _LibraryScreenState extends State<LibraryScreen> {
-  final _repo = FolderRepository();
+  final _folderRepo = FolderRepository();
+  final _cardRepo = CardRepository();
+
   List<Folder> _folders = [];
+  List<Flashcard> _cards = [];
   bool _loading = true;
 
-  // initState runs once when the screen first appears.
+  bool get _isRoot => widget.parent == null;
+
   @override
   void initState() {
     super.initState();
     _load();
   }
 
-  /// Reads the folders from the database and redraws the screen.
+  /// Reads folders (and cards, if we're inside a folder) and redraws.
   Future<void> _load() async {
-    final folders = await _repo.getChildren(widget.parent?.id);
-    // If the user left the screen while we were loading, do nothing.
+    final folders = await _folderRepo.getChildren(widget.parent?.id);
+    // Cards can't live at the top level, only inside a folder.
+    final cards = _isRoot
+        ? <Flashcard>[]
+        : await _cardRepo.getForFolder(widget.parent!.id);
     if (!mounted) return;
-    // setState tells Flutter "my data changed, redraw me".
     setState(() {
       _folders = folders;
+      _cards = cards;
       _loading = false;
     });
   }
 
-  Future<void> _create() async {
+  // ---------- folder actions ----------
+
+  Future<void> _createFolder() async {
     final name = await showNameDialog(
       context,
-      title: 'New folder',
+      title: _isRoot ? 'New folder' : 'New subfolder',
       confirmLabel: 'Create',
     );
-    if (name == null) return; // cancelled
-    await _repo.create(name, widget.parent?.id);
+    if (name == null) return;
+    await _folderRepo.create(name, widget.parent?.id);
     _load();
   }
 
-  Future<void> _rename(Folder folder) async {
+  Future<void> _renameFolder(Folder folder) async {
     final name = await showNameDialog(
       context,
       title: 'Rename folder',
@@ -61,20 +73,81 @@ class _LibraryScreenState extends State<LibraryScreen> {
       initialName: folder.name,
     );
     if (name == null) return;
-    await _repo.rename(folder.id, name);
+    await _folderRepo.rename(folder.id, name);
     _load();
   }
 
-  Future<void> _delete(Folder folder) async {
-    // showDialog<bool> returns true/false depending on the button tapped.
-    final confirmed = await showDialog<bool>(
+  Future<void> _deleteFolder(Folder folder) async {
+    final confirmed = await _confirm(
+      title: 'Delete folder?',
+      message: '"${folder.name}" and everything inside it (subfolders and '
+          'cards) will be deleted. This can\'t be undone.',
+    );
+    if (!confirmed) return;
+    await _folderRepo.delete(folder.id);
+    _load();
+  }
+
+  Future<void> _openFolder(Folder folder) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => LibraryScreen(parent: folder)),
+    );
+    _load();
+  }
+
+  // ---------- card actions ----------
+
+  Future<void> _addCard() async {
+    // push<bool> waits for the editor to close and returns what it sent back
+    // (true if the card was saved).
+    final saved = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CardEditorScreen(folderId: widget.parent!.id),
+      ),
+    );
+    if (saved == true) _load();
+  }
+
+  Future<void> _editCard(Flashcard card) async {
+    final saved = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CardEditorScreen(folderId: card.folderId, card: card),
+      ),
+    );
+    if (saved == true) _load();
+  }
+
+  Future<void> _deleteCard(Flashcard card) async {
+    final confirmed = await _confirm(
+      title: 'Delete card?',
+      message: 'This card will be deleted. This can\'t be undone.',
+    );
+    if (!confirmed) return;
+    await _cardRepo.delete(card.id);
+    _load();
+  }
+
+  void _viewCard(int index) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CardViewScreen(cards: _cards, initialIndex: index),
+      ),
+    );
+  }
+
+  // ---------- helpers ----------
+
+  /// A reusable Cancel / Delete popup. Returns true if the user confirmed.
+  Future<bool> _confirm({required String title, required String message}) async {
+    final result = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete folder?'),
-        content: Text(
-          '"${folder.name}" and everything inside it will be deleted. '
-          'This can\'t be undone.',
-        ),
+        title: Text(title),
+        content: Text(message),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -87,71 +160,132 @@ class _LibraryScreenState extends State<LibraryScreen> {
         ],
       ),
     );
-    if (confirmed != true) return;
-    await _repo.delete(folder.id);
-    _load();
+    return result == true; // null (tapped outside) counts as "no"
   }
 
-  Future<void> _open(Folder folder) async {
-    // Go to a new screen for this folder. 'await' waits until the user
-    // comes back, then we reload so the subfolder counts are up to date.
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => LibraryScreen(parent: folder)),
+  /// Inside a folder the + button asks what to add.
+  Future<void> _showAddMenu() async {
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.style_rounded),
+              title: const Text('New card'),
+              onTap: () => Navigator.pop(context, 'card'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.create_new_folder_rounded),
+              title: const Text('New subfolder'),
+              onTap: () => Navigator.pop(context, 'folder'),
+            ),
+          ],
+        ),
+      ),
     );
-    _load();
+    if (choice == 'card') _addCard();
+    if (choice == 'folder') _createFolder();
   }
+
+  // ---------- screen ----------
 
   @override
   Widget build(BuildContext context) {
-    final isRoot = widget.parent == null;
-
     return Scaffold(
       appBar: AppBar(title: Text(widget.parent?.name ?? 'Flashcards')),
-      body: _buildBody(isRoot),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _create,
-        icon: const Icon(Icons.add_rounded),
-        label: const Text('New folder'),
-      ),
+      body: _buildBody(),
+      floatingActionButton: _isRoot
+          ? FloatingActionButton.extended(
+              onPressed: _createFolder,
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('New folder'),
+            )
+          : FloatingActionButton.extended(
+              onPressed: _showAddMenu,
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('Add'),
+            ),
     );
   }
 
-  Widget _buildBody(bool isRoot) {
-    // Still reading from the database: show a small spinner.
+  Widget _buildBody() {
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
 
-    // Nothing here yet: show the empty state from stage 0.
-    if (_folders.isEmpty) {
+    if (_folders.isEmpty && _cards.isEmpty) {
       return EmptyState(
         icon: Icons.folder_open_rounded,
-        title: isRoot ? 'Nothing here yet' : 'This folder is empty',
-        message: isRoot
+        title: _isRoot ? 'Nothing here yet' : 'This folder is empty',
+        message: _isRoot
             ? 'Create your first folder to start\norganizing your flashcards.'
-            : 'Add a subfolder to organize\nthis topic further.',
+            : 'Tap Add to create a card\nor a subfolder.',
       );
     }
 
-    // Otherwise show the list of folders.
-    return ListView.separated(
-      // Extra space at the bottom so the button never covers the last folder.
+    // Build one long list of widgets: folders first, then cards.
+    final items = <Widget>[];
+
+    if (_folders.isNotEmpty) {
+      // At the top level there are only folders, so a label isn't needed.
+      if (!_isRoot) items.add(const _SectionLabel('FOLDERS'));
+      for (final folder in _folders) {
+        items.add(_FolderTile(
+          folder: folder,
+          onTap: () => _openFolder(folder),
+          onRename: () => _renameFolder(folder),
+          onDelete: () => _deleteFolder(folder),
+        ));
+        items.add(const SizedBox(height: 12));
+      }
+    }
+
+    if (_cards.isNotEmpty) {
+      items.add(const _SectionLabel('CARDS'));
+      for (var i = 0; i < _cards.length; i++) {
+        final card = _cards[i];
+        items.add(_CardTile(
+          card: card,
+          onTap: () => _viewCard(i),
+          onEdit: () => _editCard(card),
+          onDelete: () => _deleteCard(card),
+        ));
+        items.add(const SizedBox(height: 12));
+      }
+    }
+
+    return ListView(
+      // Extra space at the bottom so the button never covers the last item.
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 96),
-      itemCount: _folders.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      // itemBuilder is called once per folder to build its row.
-      itemBuilder: (context, index) => _FolderTile(
-        folder: _folders[index],
-        onTap: () => _open(_folders[index]),
-        onRename: () => _rename(_folders[index]),
-        onDelete: () => _delete(_folders[index]),
+      children: items,
+    );
+  }
+}
+
+/// A small grey heading like "FOLDERS" or "CARDS".
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 8, 4, 10),
+      child: Text(
+        text,
+        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: AppColors.textMuted,
+              letterSpacing: 1.5,
+            ),
       ),
     );
   }
 }
 
-/// One row in the list: icon, name, subfolder count, and a "..." menu.
+/// One folder row: icon, name, subfolder count, and a "..." menu.
 class _FolderTile extends StatelessWidget {
   const _FolderTile({
     required this.folder,
@@ -161,7 +295,7 @@ class _FolderTile extends StatelessWidget {
   });
 
   final Folder folder;
-  final VoidCallback onTap; // VoidCallback = a function with no inputs/outputs
+  final VoidCallback onTap;
   final VoidCallback onRename;
   final VoidCallback onDelete;
 
@@ -171,7 +305,6 @@ class _FolderTile extends StatelessWidget {
     final n = folder.childCount;
 
     return Card(
-      // Clips the tap ripple to the card's rounded corners.
       clipBehavior: Clip.antiAlias,
       child: ListTile(
         onTap: onTap,
@@ -190,7 +323,6 @@ class _FolderTile extends StatelessWidget {
           n == 0 ? 'No subfolders' : (n == 1 ? '1 subfolder' : '$n subfolders'),
           style: textTheme.bodyMedium?.copyWith(color: AppColors.textMuted),
         ),
-        // The "..." button that opens a small menu.
         trailing: PopupMenuButton<String>(
           icon: const Icon(Icons.more_vert_rounded, color: AppColors.textMuted),
           onSelected: (value) {
@@ -199,6 +331,67 @@ class _FolderTile extends StatelessWidget {
           },
           itemBuilder: (_) => const [
             PopupMenuItem(value: 'rename', child: Text('Rename')),
+            PopupMenuItem(value: 'delete', child: Text('Delete')),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// One card row: the question, a one-line preview of the answer, and a menu.
+class _CardTile extends StatelessWidget {
+  const _CardTile({
+    required this.card,
+    required this.onTap,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final Flashcard card;
+  final VoidCallback onTap;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: ListTile(
+        onTap: onTap,
+        contentPadding: const EdgeInsets.fromLTRB(16, 6, 8, 6),
+        leading: Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: AppColors.primarySoft,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: const Icon(Icons.style_rounded, color: AppColors.primary),
+        ),
+        // maxLines + ellipsis cuts long text with "..." so rows stay tidy.
+        title: Text(
+          card.front,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: textTheme.titleMedium,
+        ),
+        subtitle: Text(
+          card.back,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: textTheme.bodyMedium?.copyWith(color: AppColors.textMuted),
+        ),
+        trailing: PopupMenuButton<String>(
+          icon: const Icon(Icons.more_vert_rounded, color: AppColors.textMuted),
+          onSelected: (value) {
+            if (value == 'edit') onEdit();
+            if (value == 'delete') onDelete();
+          },
+          itemBuilder: (_) => const [
+            PopupMenuItem(value: 'edit', child: Text('Edit')),
             PopupMenuItem(value: 'delete', child: Text('Delete')),
           ],
         ),
