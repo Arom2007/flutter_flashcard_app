@@ -9,6 +9,7 @@ import '../widgets/empty_state.dart';
 import '../widgets/name_dialog.dart';
 import 'card_editor_screen.dart';
 import 'card_view_screen.dart';
+import 'study_screen.dart';
 
 /// Shows what's inside one place: subfolders and (inside a folder) cards.
 /// With no [parent] it is the home screen (top level, folders only).
@@ -99,8 +100,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
   // ---------- card actions ----------
 
   Future<void> _addCard() async {
-    // push<bool> waits for the editor to close and returns what it sent back
-    // (true if the card was saved).
     final saved = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
@@ -135,6 +134,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
       context,
       MaterialPageRoute(
         builder: (_) => CardViewScreen(cards: _cards, initialIndex: index),
+      ),
+    );
+  }
+
+  /// Opens study mode for the cards in this folder.
+  void _study() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => StudyScreen(title: widget.parent!.name, cards: _cards),
       ),
     );
   }
@@ -194,7 +203,21 @@ class _LibraryScreenState extends State<LibraryScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.parent?.name ?? 'Flashcards')),
+      appBar: AppBar(
+        title: Text(widget.parent?.name ?? 'Flashcards'),
+        actions: [
+          // Only show Study when we're in a folder that has cards.
+          if (!_isRoot && _cards.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: FilledButton.icon(
+                onPressed: _study,
+                icon: const Icon(Icons.play_arrow_rounded),
+                label: const Text('Study'),
+              ),
+            ),
+        ],
+      ),
       body: _buildBody(),
       floatingActionButton: _isRoot
           ? FloatingActionButton.extended(
@@ -229,7 +252,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final items = <Widget>[];
 
     if (_folders.isNotEmpty) {
-      // At the top level there are only folders, so a label isn't needed.
       if (!_isRoot) items.add(const _SectionLabel('FOLDERS'));
       for (final folder in _folders) {
         items.add(_FolderTile(
@@ -257,7 +279,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
 
     return ListView(
-      // Extra space at the bottom so the button never covers the last item.
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 96),
       children: items,
     );
@@ -371,7 +392,6 @@ class _CardTile extends StatelessWidget {
           ),
           child: const Icon(Icons.style_rounded, color: AppColors.primary),
         ),
-        // maxLines + ellipsis cuts long text with "..." so rows stay tidy.
         title: Text(
           card.front,
           maxLines: 2,
