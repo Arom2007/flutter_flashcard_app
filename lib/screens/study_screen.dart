@@ -7,6 +7,8 @@ import '../widgets/card_face.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/flip_card.dart';
 import '../widgets/rating_buttons.dart';
+import '../widgets/study_timer.dart';
+import 'session_summary_screen.dart';
 
 /// Study mode: shows one card at a time. Flip it, then rate how hard it was.
 class StudyScreen extends StatefulWidget {
@@ -22,6 +24,11 @@ class StudyScreen extends StatefulWidget {
 class _StudyScreenState extends State<StudyScreen> {
   // The session holds the queue. The screen only displays it.
   late final StudySession _session = StudySession(widget.cards);
+
+  // The stopwatch for the whole study session. '..start()' creates it and
+  // starts it in one go. This line runs when the screen opens, which is
+  // the moment the user taps Study.
+  final Stopwatch _stopwatch = Stopwatch()..start();
 
   // Becomes true once the user has flipped to the answer. Only then do
   // the rating buttons appear.
@@ -49,6 +56,19 @@ class _StudyScreenState extends State<StudyScreen> {
     });
   }
 
+  /// Ends the study session: stops the stopwatch and shows the summary.
+  void _finish() {
+    _stopwatch.stop();
+    // pushReplacement swaps THIS screen for the summary screen, so when the
+    // user taps Done they land back on the folder (not on a finished session).
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SessionSummaryScreen(duration: _stopwatch.elapsed),
+      ),
+    );
+  }
+
   /// The small grey line under the toggle.
   String get _status {
     if (_session.isFinished) return 'All done';
@@ -58,36 +78,49 @@ class _StudyScreenState extends State<StudyScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.title),
-        actions: [
-          IconButton(
-            tooltip: 'Shuffle',
-            icon: const Icon(Icons.shuffle_rounded),
-            // null disables the button (nothing left to shuffle).
-            onPressed: _session.isFinished ? null : _shuffle,
-          ),
-          const SizedBox(width: 8),
-        ],
-      ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            const SizedBox(height: 4),
-            _buildModeToggle(),
-            const SizedBox(height: 10),
-            Text(
-              _status,
-              style: Theme.of(context)
-                  .textTheme
-                  .bodyMedium
-                  ?.copyWith(color: AppColors.textMuted),
+    // PopScope intercepts "going back": both the arrow in the top bar and
+    // the phone's own back button/gesture. canPop: false stops the normal
+    // back; instead Flutter calls onPopInvokedWithResult, where we show the
+    // summary. 'didPop' is false because we blocked it.
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) _finish();
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(widget.title),
+          actions: [
+            // The running timer pill.
+            StudyTimer(stopwatch: _stopwatch),
+            const SizedBox(width: 4),
+            IconButton(
+              tooltip: 'Shuffle',
+              icon: const Icon(Icons.shuffle_rounded),
+              // null disables the button (nothing left to shuffle).
+              onPressed: _session.isFinished ? null : _shuffle,
             ),
-            Expanded(
-              child: _session.isFinished ? _buildFinished() : _buildCard(),
-            ),
+            const SizedBox(width: 8),
           ],
+        ),
+        body: SafeArea(
+          child: Column(
+            children: [
+              const SizedBox(height: 4),
+              _buildModeToggle(),
+              const SizedBox(height: 10),
+              Text(
+                _status,
+                style: Theme.of(context)
+                    .textTheme
+                    .bodyMedium
+                    ?.copyWith(color: AppColors.textMuted),
+              ),
+              Expanded(
+                child: _session.isFinished ? _buildFinished() : _buildCard(),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -177,6 +210,7 @@ class _StudyScreenState extends State<StudyScreen> {
             width: double.infinity,
             child: FilledButton(
               // Calling _setLoop with the current mode = start over.
+              // (The stopwatch keeps running: the session ends when you leave.)
               onPressed: () => _setLoop(_session.loop),
               child: const Text('Study again'),
             ),
