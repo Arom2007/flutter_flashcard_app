@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../providers/study_session.dart';
+import '../theme/app_theme.dart';
 
 /// The four buttons shown after a card is flipped:
 /// Very Hard, Hard, Medium, Easy.
@@ -9,11 +10,12 @@ class RatingButtons extends StatelessWidget {
 
   final ValueChanged<Rating> onRate; // called with the rating that was tapped
 
-  // A muted color for each rating (terracotta -> amber -> blue -> green).
+  // A color for each rating (terracotta -> amber -> blue -> green).
+  // Medium uses the app's main blue, so it always matches the theme.
   static const _colors = {
     Rating.veryHard: Color(0xFFB4492F),
     Rating.hard: Color(0xFFB7791F),
-    Rating.medium: Color(0xFF3D5A80),
+    Rating.medium: AppColors.primary,
     Rating.easy: Color(0xFF3F7D5A),
   };
 

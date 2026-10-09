@@ -11,12 +11,17 @@ class AppColors {
   // usual red-green-blue hex code you'd see on a website.
   static const background = Color(0xFFF7F6F3); // warm off-white
   static const surface = Colors.white; // cards and input fields
-  static const primary = Color(0xFF3D5A80); // muted blue, our main accent
+
+  // The bright blue from the app icon (the middle of its blue gradient).
+  // This was a dull navy (0xFF3D5A80) before.
+  static const primary = Color(0xFF0A8CF0);
   static const onPrimary = Colors.white; // text/icons placed ON the primary color
   static const text = Color(0xFF1F2430); // near-black for main text
   static const textMuted = Color(0xFF8A8F9C); // grey for secondary text
   static const border = Color(0xFFE8E6E1); // thin outlines around cards
-  static const primarySoft = Color(0xFFE6ECF4); // pale tint of the primary blue
+
+  // A pale tint of the primary blue, for icon squares and selected buttons.
+  static const primarySoft = Color(0xFFE4F2FE);
 }
 
 class AppTheme {
@@ -90,7 +95,7 @@ class AppTheme {
         ),
       ),
 
-      // Style of FilledButton (the solid-colored buttons we'll use later).
+      // Style of FilledButton (the solid-colored buttons).
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           backgroundColor: AppColors.primary,
@@ -102,7 +107,7 @@ class AppTheme {
         ),
       ),
 
-      // Style of text boxes (we'll use these for naming folders, etc.).
+      // Style of text boxes (naming folders, titles, etc.).
       inputDecorationTheme: InputDecorationTheme(
         filled: true, // fill the box with a color
         fillColor: AppColors.surface,
