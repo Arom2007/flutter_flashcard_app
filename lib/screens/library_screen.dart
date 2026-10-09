@@ -379,8 +379,8 @@ class _FolderTile extends StatelessWidget {
   }
 }
 
-/// One card row. Text cards show the question and a preview of the answer;
-/// image cards show a thumbnail and how many boxes / labels they have.
+/// One card row: just the card's name (no answer shown) and a menu.
+/// Text cards are named by their question; image cards by their title.
 class _CardTile extends StatelessWidget {
   const _CardTile({
     required this.card,
@@ -394,26 +394,25 @@ class _CardTile extends StatelessWidget {
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
-  /// e.g. "3 boxes · 2 labels"
-  String get _imageSummary {
-    final boxes = card.overlay?.boxes.length ?? 0;
-    final texts = card.overlay?.texts.length ?? 0;
-    final b = '$boxes ${boxes == 1 ? 'box' : 'boxes'}';
-    if (texts == 0) return b;
-    return '$b · $texts ${texts == 1 ? 'label' : 'labels'}';
+  /// The name shown for this card.
+  String get _name {
+    if (!card.isImage) return RichTextCodec.plainText(card.front);
+    // Image cards store their title (plain text) in 'front'. Older image
+    // cards have none, so they fall back to "Image card".
+    final title = card.front.trim();
+    return title.isEmpty ? 'Image card' : title;
   }
 
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
-    final isImage = card.isImage;
 
     return Card(
       clipBehavior: Clip.antiAlias,
       child: ListTile(
         onTap: onTap,
         contentPadding: const EdgeInsets.fromLTRB(16, 6, 8, 6),
-        leading: isImage
+        leading: card.isImage
             ? _Thumbnail(name: card.imagePath!)
             : Container(
                 width: 44,
@@ -425,16 +424,10 @@ class _CardTile extends StatelessWidget {
                 child: const Icon(Icons.style_rounded, color: AppColors.primary),
               ),
         title: Text(
-          isImage ? 'Image card' : RichTextCodec.plainText(card.front),
+          _name,
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
           style: textTheme.titleMedium,
-        ),
-        subtitle: Text(
-          isImage ? _imageSummary : RichTextCodec.plainText(card.back),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: textTheme.bodyMedium?.copyWith(color: AppColors.textMuted),
         ),
         trailing: PopupMenuButton<String>(
           icon: const Icon(Icons.more_vert_rounded, color: AppColors.textMuted),

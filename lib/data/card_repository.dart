@@ -36,26 +36,29 @@ class CardRepository {
   }
 
   /// Adds an image card. [imageName] is the file name from ImageStore.save,
-  /// [overlayJson] is ImageOverlay.toJsonString(). front/back stay empty.
+  /// [overlayJson] is ImageOverlay.toJsonString(). The card's [title] is
+  /// stored in the 'front' column, which image cards don't otherwise use.
   Future<void> createImageCard(
     int folderId,
+    String title,
     String imageName,
     String overlayJson,
   ) async {
     final db = await DatabaseHelper.instance.database;
     await db.insert('cards', {
       'folder_id': folderId,
+      'front': title,
       'image_path': imageName,
       'boxes': overlayJson,
     });
   }
 
-  /// Saves new boxes/text for an existing image card.
-  Future<void> updateImageCard(int id, String overlayJson) async {
+  /// Saves a new title and new boxes/text for an existing image card.
+  Future<void> updateImageCard(int id, String title, String overlayJson) async {
     final db = await DatabaseHelper.instance.database;
     await db.update(
       'cards',
-      {'boxes': overlayJson},
+      {'front': title, 'boxes': overlayJson},
       where: 'id = ?',
       whereArgs: [id],
     );

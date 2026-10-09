@@ -51,9 +51,12 @@ class StudySession {
   /// In Play once mode: how many cards are already done.
   int get doneCount => total - _queue.length;
 
-  /// Starts again from the first card, in the original order.
+  /// Starts a fresh session with every card, in a random order.
+  /// This runs when study mode opens, when you switch between Loop and
+  /// Play once, and when you tap "Study again".
   void restart() {
     _queue = List.of(_all);
+    _queue.shuffle(_random); // the new default: start shuffled
     counts.clear();
     turn++;
   }
@@ -65,6 +68,7 @@ class StudySession {
   }
 
   /// Randomly reorders the cards that are still in the queue.
+  /// (The Shuffle button in the top bar calls this.)
   void shuffle() {
     _queue.shuffle(_random);
     turn++;

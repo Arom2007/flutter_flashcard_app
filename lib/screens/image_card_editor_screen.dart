@@ -16,7 +16,8 @@ enum _Tool { boxes, text }
 // What the finger is doing during a drag on the image (Boxes tool).
 enum _Drag { none, create, move, resize }
 
-/// Create or edit an image card: pick a picture, draw boxes, add text.
+/// Create or edit an image card: pick a picture, give it a title,
+/// draw boxes, add text.
 /// If [card] is given we are editing it; otherwise we're making a new one.
 class ImageCardEditorScreen extends StatefulWidget {
   const ImageCardEditorScreen({super.key, required this.folderId, this.card});
@@ -30,6 +31,10 @@ class ImageCardEditorScreen extends StatefulWidget {
 
 class _ImageCardEditorScreenState extends State<ImageCardEditorScreen> {
   final _repo = CardRepository();
+
+  // The title typed at the top. When editing, it starts with the saved title.
+  late final TextEditingController _title =
+      TextEditingController(text: widget.card?.front ?? '');
 
   File? _imageFile; // the picture being shown
   String? _pickedPath; // temporary path of a newly picked picture
@@ -85,6 +90,13 @@ class _ImageCardEditorScreenState extends State<ImageCardEditorScreen> {
     }
   }
 
+  // Free the title box's memory when the screen closes.
+  @override
+  void dispose() {
+    _title.dispose();
+    super.dispose();
+  }
+
   void _message(String text) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
@@ -117,6 +129,8 @@ class _ImageCardEditorScreenState extends State<ImageCardEditorScreen> {
       return;
     }
 
+    final title = _title.text.trim(); // can be empty: the list shows "Image card"
+
     final json = ImageOverlay(
       aspect: _aspect,
       boxes: List.of(_boxes),
@@ -124,11 +138,11 @@ class _ImageCardEditorScreenState extends State<ImageCardEditorScreen> {
     ).toJsonString();
 
     if (_isEditing) {
-      await _repo.updateImageCard(widget.card!.id, json);
+      await _repo.updateImageCard(widget.card!.id, title, json);
     } else {
       // Only now is the picture copied into the app's own folder.
       final name = await ImageStore.instance.save(_pickedPath!);
-      await _repo.createImageCard(widget.folderId, name, json);
+      await _repo.createImageCard(widget.folderId, title, name, json);
     }
 
     if (!mounted) return;
@@ -358,9 +372,24 @@ class _ImageCardEditorScreenState extends State<ImageCardEditorScreen> {
   Widget _buildEditor() {
     return Column(
       children: [
+        // The card's title: this is the name shown in the folder list.
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 10),
+          child: TextField(
+            controller: _title,
+            maxLines: 1,
+            textInputAction: TextInputAction.done, // keyboard "done" key
+            textCapitalization: TextCapitalization.sentences,
+            decoration: const InputDecoration(
+              hintText: 'Title (shown in the folder list)',
+              isDense: true,
+            ),
+          ),
+        ),
+
         // Boxes | Text switch.
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
           child: SegmentedButton<_Tool>(
             segments: const [
               ButtonSegment(
