@@ -21,7 +21,7 @@ class FlashcardsApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flashcards',
+      title: 'CrashCards',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       localizationsDelegates: const [
