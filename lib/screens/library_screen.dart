@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../data/card_repository.dart';
 import '../data/folder_repository.dart';
-import '../data/image_store.dart';
 import '../data/rich_text_codec.dart';
 import '../models/flashcard.dart';
 import '../models/folder.dart';
@@ -379,7 +378,7 @@ class _FolderTile extends StatelessWidget {
   }
 }
 
-/// One card row: just the card's name (no answer shown) and a menu.
+/// One card row: an icon, the card's name (no answer shown) and a menu.
 /// Text cards are named by their question; image cards by their title.
 class _CardTile extends StatelessWidget {
   const _CardTile({
@@ -412,17 +411,20 @@ class _CardTile extends StatelessWidget {
       child: ListTile(
         onTap: onTap,
         contentPadding: const EdgeInsets.fromLTRB(16, 6, 8, 6),
-        leading: card.isImage
-            ? _Thumbnail(name: card.imagePath!)
-            : Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: AppColors.primarySoft,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: const Icon(Icons.style_rounded, color: AppColors.primary),
-              ),
+        // The same soft blue square for both kinds of card. Only the icon
+        // differs: a card for text cards, a picture for image cards.
+        leading: Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: AppColors.primarySoft,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Icon(
+            card.isImage ? Icons.image_rounded : Icons.style_rounded,
+            color: AppColors.primary,
+          ),
+        ),
         title: Text(
           _name,
           maxLines: 2,
@@ -439,33 +441,6 @@ class _CardTile extends StatelessWidget {
             PopupMenuItem(value: 'edit', child: Text('Edit')),
             PopupMenuItem(value: 'delete', child: Text('Delete')),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-/// A small rounded picture for image cards in the list.
-class _Thumbnail extends StatelessWidget {
-  const _Thumbnail({required this.name});
-
-  final String name;
-
-  @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(14),
-      child: SizedBox(
-        width: 44,
-        height: 44,
-        child: Image.file(
-          ImageStore.instance.fileFor(name),
-          fit: BoxFit.cover,
-          cacheWidth: 132, // decode a small version: saves memory
-          errorBuilder: (_, __, ___) => Container(
-            color: AppColors.primarySoft,
-            child: const Icon(Icons.image_rounded, color: AppColors.primary),
-          ),
         ),
       ),
     );
