@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../data/card_repository.dart';
 import '../data/folder_repository.dart';
+import '../data/image_store.dart';
 import '../data/rich_text_codec.dart';
 import '../models/flashcard.dart';
 import '../models/folder.dart';
@@ -10,6 +11,7 @@ import '../widgets/empty_state.dart';
 import '../widgets/name_dialog.dart';
 import 'card_editor_screen.dart';
 import 'card_view_screen.dart';
+import 'image_card_editor_screen.dart';
 import 'study_screen.dart';
 
 /// Shows what's inside one place: subfolders and (inside a folder) cards.
@@ -42,7 +44,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
   /// Reads folders (and cards, if we're inside a folder) and redraws.
   Future<void> _load() async {
     final folders = await _folderRepo.getChildren(widget.parent?.id);
-    // Cards can't live at the top level, only inside a folder.
     final cards = _isRoot
         ? <Flashcard>[]
         : await _cardRepo.getForFolder(widget.parent!.id);
@@ -110,11 +111,24 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (saved == true) _load();
   }
 
-  Future<void> _editCard(Flashcard card) async {
+  Future<void> _addImageCard() async {
     final saved = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
-        builder: (_) => CardEditorScreen(folderId: card.folderId, card: card),
+        builder: (_) => ImageCardEditorScreen(folderId: widget.parent!.id),
+      ),
+    );
+    if (saved == true) _load();
+  }
+
+  Future<void> _editCard(Flashcard card) async {
+    // Image cards and text cards have different editors.
+    final saved = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => card.isImage
+            ? ImageCardEditorScreen(folderId: card.folderId, card: card)
+            : CardEditorScreen(folderId: card.folderId, card: card),
       ),
     );
     if (saved == true) _load();
@@ -170,7 +184,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         ],
       ),
     );
-    return result == true; // null (tapped outside) counts as "no"
+    return result == true;
   }
 
   /// Inside a folder the + button asks what to add.
@@ -187,6 +201,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
               onTap: () => Navigator.pop(context, 'card'),
             ),
             ListTile(
+              leading: const Icon(Icons.image_rounded),
+              title: const Text('New image card'),
+              onTap: () => Navigator.pop(context, 'image'),
+            ),
+            ListTile(
               leading: const Icon(Icons.create_new_folder_rounded),
               title: const Text('New subfolder'),
               onTap: () => Navigator.pop(context, 'folder'),
@@ -196,6 +215,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       ),
     );
     if (choice == 'card') _addCard();
+    if (choice == 'image') _addImageCard();
     if (choice == 'folder') _createFolder();
   }
 
@@ -207,7 +227,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
       appBar: AppBar(
         title: Text(widget.parent?.name ?? 'Flashcards'),
         actions: [
-          // Only show Study when we're in a folder that has cards.
           if (!_isRoot && _cards.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(right: 12),
@@ -249,7 +268,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
       );
     }
 
-    // Build one long list of widgets: folders first, then cards.
     final items = <Widget>[];
 
     if (_folders.isNotEmpty) {
@@ -361,8 +379,8 @@ class _FolderTile extends StatelessWidget {
   }
 }
 
-/// One card row: the question, a one-line preview of the answer, and a menu.
-/// The stored text is formatted, so we show just the words (no formatting).
+/// One card row. Text cards show the question and a preview of the answer;
+/// image cards show a thumbnail and how many boxes / labels they have.
 class _CardTile extends StatelessWidget {
   const _CardTile({
     required this.card,
@@ -376,32 +394,44 @@ class _CardTile extends StatelessWidget {
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
+  /// e.g. "3 boxes · 2 labels"
+  String get _imageSummary {
+    final boxes = card.overlay?.boxes.length ?? 0;
+    final texts = card.overlay?.texts.length ?? 0;
+    final b = '$boxes ${boxes == 1 ? 'box' : 'boxes'}';
+    if (texts == 0) return b;
+    return '$b · $texts ${texts == 1 ? 'label' : 'labels'}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
+    final isImage = card.isImage;
 
     return Card(
       clipBehavior: Clip.antiAlias,
       child: ListTile(
         onTap: onTap,
         contentPadding: const EdgeInsets.fromLTRB(16, 6, 8, 6),
-        leading: Container(
-          width: 44,
-          height: 44,
-          decoration: BoxDecoration(
-            color: AppColors.primarySoft,
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: const Icon(Icons.style_rounded, color: AppColors.primary),
-        ),
+        leading: isImage
+            ? _Thumbnail(name: card.imagePath!)
+            : Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: AppColors.primarySoft,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(Icons.style_rounded, color: AppColors.primary),
+              ),
         title: Text(
-          RichTextCodec.plainText(card.front),
+          isImage ? 'Image card' : RichTextCodec.plainText(card.front),
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
           style: textTheme.titleMedium,
         ),
         subtitle: Text(
-          RichTextCodec.plainText(card.back),
+          isImage ? _imageSummary : RichTextCodec.plainText(card.back),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: textTheme.bodyMedium?.copyWith(color: AppColors.textMuted),
@@ -416,6 +446,33 @@ class _CardTile extends StatelessWidget {
             PopupMenuItem(value: 'edit', child: Text('Edit')),
             PopupMenuItem(value: 'delete', child: Text('Delete')),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A small rounded picture for image cards in the list.
+class _Thumbnail extends StatelessWidget {
+  const _Thumbnail({required this.name});
+
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: SizedBox(
+        width: 44,
+        height: 44,
+        child: Image.file(
+          ImageStore.instance.fileFor(name),
+          fit: BoxFit.cover,
+          cacheWidth: 132, // decode a small version: saves memory
+          errorBuilder: (_, __, ___) => Container(
+            color: AppColors.primarySoft,
+            child: const Icon(Icons.image_rounded, color: AppColors.primary),
+          ),
         ),
       ),
     );

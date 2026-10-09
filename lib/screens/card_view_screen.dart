@@ -4,9 +4,10 @@ import '../models/flashcard.dart';
 import '../theme/app_theme.dart';
 import '../widgets/card_face.dart';
 import '../widgets/flip_card.dart';
+import '../widgets/image_study_card.dart';
 
-/// Shows one card at a time, big. Tap to flip; swipe left/right to move
-/// to the other cards in the folder.
+/// Shows one card at a time, big. Text cards flip when tapped; image cards
+/// let you tap their boxes. Swipe left/right to move between cards.
 class CardViewScreen extends StatefulWidget {
   const CardViewScreen({
     super.key,
@@ -33,6 +34,11 @@ class _CardViewScreenState extends State<CardViewScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // The hint under the card depends on which kind of card is showing.
+    final hint = widget.cards[_index].isImage
+        ? 'Tap a box to reveal it'
+        : 'Tap the card to flip';
+
     return Scaffold(
       appBar: AppBar(title: Text('${_index + 1} / ${widget.cards.length}')),
       body: SafeArea(
@@ -46,16 +52,19 @@ class _CardViewScreenState extends State<CardViewScreen> {
                 itemBuilder: (context, i) {
                   final card = widget.cards[i];
                   return Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
-                    child: FlipCard(
-                      key: ValueKey(card.id),
-                      front: CardFace(label: 'QUESTION', text: card.front),
-                      back: CardFace(
-                        label: 'ANSWER',
-                        text: card.back,
-                        tinted: true,
-                      ),
-                    ),
+                    padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+                    child: card.isImage
+                        ? ImageStudyCard(key: ValueKey(card.id), card: card)
+                        : FlipCard(
+                            key: ValueKey(card.id),
+                            front:
+                                CardFace(label: 'QUESTION', text: card.front),
+                            back: CardFace(
+                              label: 'ANSWER',
+                              text: card.back,
+                              tinted: true,
+                            ),
+                          ),
                   );
                 },
               ),
@@ -63,7 +72,7 @@ class _CardViewScreenState extends State<CardViewScreen> {
             Padding(
               padding: const EdgeInsets.only(bottom: 16),
               child: Text(
-                'Tap the card to flip',
+                hint,
                 style: Theme.of(context)
                     .textTheme
                     .bodyMedium

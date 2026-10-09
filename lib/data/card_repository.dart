@@ -1,5 +1,6 @@
 import '../models/flashcard.dart';
 import 'database_helper.dart';
+import 'image_store.dart';
 
 /// All the database questions about cards live here.
 class CardRepository {
@@ -34,8 +35,45 @@ class CardRepository {
     );
   }
 
+  /// Adds an image card. [imageName] is the file name from ImageStore.save,
+  /// [overlayJson] is ImageOverlay.toJsonString(). front/back stay empty.
+  Future<void> createImageCard(
+    int folderId,
+    String imageName,
+    String overlayJson,
+  ) async {
+    final db = await DatabaseHelper.instance.database;
+    await db.insert('cards', {
+      'folder_id': folderId,
+      'image_path': imageName,
+      'boxes': overlayJson,
+    });
+  }
+
+  /// Saves new boxes/text for an existing image card.
+  Future<void> updateImageCard(int id, String overlayJson) async {
+    final db = await DatabaseHelper.instance.database;
+    await db.update(
+      'cards',
+      {'boxes': overlayJson},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
   Future<void> delete(int id) async {
     final db = await DatabaseHelper.instance.database;
+    // Remember the image name first, so the picture file can be removed too.
+    final rows = await db.query(
+      'cards',
+      columns: ['image_path'],
+      where: 'id = ?',
+      whereArgs: [id],
+    );
     await db.delete('cards', where: 'id = ?', whereArgs: [id]);
+    if (rows.isNotEmpty) {
+      final name = rows.first['image_path'] as String?;
+      if (name != null) await ImageStore.instance.delete(name);
+    }
   }
 }
