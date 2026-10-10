@@ -16,6 +16,13 @@ class CardRepository {
     return rows.map(Flashcard.fromMap).toList();
   }
 
+  /// Every card in the app (used by search).
+  Future<List<Flashcard>> getAll() async {
+    final db = await DatabaseHelper.instance.database;
+    final rows = await db.query('cards', orderBy: 'id');
+    return rows.map(Flashcard.fromMap).toList();
+  }
+
   Future<void> create(int folderId, String front, String back) async {
     final db = await DatabaseHelper.instance.database;
     await db.insert('cards', {

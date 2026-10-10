@@ -1,5 +1,6 @@
 import '../models/folder.dart';
 import 'database_helper.dart';
+import 'image_store.dart';
 
 /// All the database questions about folders live here, so screens
 /// never have to write SQL themselves.
@@ -10,7 +11,6 @@ class FolderRepository {
     final db = await DatabaseHelper.instance.database;
 
     // In SQL, "= NULL" never matches; you must write "IS NULL".
-    // So we pick the right wording depending on whether parentId is null.
     final rows = await db.rawQuery(
       '''
       SELECT f.id, f.parent_id, f.name,
@@ -19,11 +19,16 @@ class FolderRepository {
       WHERE f.parent_id ${parentId == null ? 'IS NULL' : '= ?'}
       ORDER BY f.name COLLATE NOCASE
       ''',
-      // The '?' above is filled in by this list (nothing when IS NULL).
       parentId == null ? [] : [parentId],
     );
 
-    // Turn each database row into a Folder object.
+    return rows.map(Folder.fromMap).toList();
+  }
+
+  /// Every folder in the app, at any depth (used by search).
+  Future<List<Folder>> getAll() async {
+    final db = await DatabaseHelper.instance.database;
+    final rows = await db.query('folders', orderBy: 'name COLLATE NOCASE');
     return rows.map(Folder.fromMap).toList();
   }
 
@@ -39,9 +44,33 @@ class FolderRepository {
     await db.update('folders', {'name': name}, where: 'id = ?', whereArgs: [id]);
   }
 
-  /// Deletes a folder AND everything inside it (thanks to CASCADE).
+  /// Deletes a folder AND everything inside it (thanks to CASCADE),
+  /// including the picture files of its image cards.
   Future<void> delete(int id) async {
     final db = await DatabaseHelper.instance.database;
+
+    // First find every picture inside this folder and all its subfolders.
+    // 'WITH RECURSIVE' walks down the tree: the folder itself, then its
+    // children, then their children, and so on.
+    final rows = await db.rawQuery(
+      '''
+      WITH RECURSIVE tree(id) AS (
+        SELECT id FROM folders WHERE id = ?
+        UNION ALL
+        SELECT f.id FROM folders f JOIN tree t ON f.parent_id = t.id
+      )
+      SELECT image_path FROM cards
+      WHERE image_path IS NOT NULL AND folder_id IN (SELECT id FROM tree)
+      ''',
+      [id],
+    );
+
     await db.delete('folders', where: 'id = ?', whereArgs: [id]);
+
+    // Only after the rows are gone, remove the picture files.
+    for (final row in rows) {
+      final name = row['image_path'] as String?;
+      if (name != null) await ImageStore.instance.delete(name);
+    }
   }
 }

@@ -6,11 +6,13 @@ import '../data/rich_text_codec.dart';
 import '../models/flashcard.dart';
 import '../models/folder.dart';
 import '../theme/app_theme.dart';
+import '../widgets/backup_actions.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/name_dialog.dart';
 import 'card_editor_screen.dart';
 import 'card_view_screen.dart';
 import 'image_card_editor_screen.dart';
+import 'search_screen.dart';
 import 'study_screen.dart';
 
 /// Shows what's inside one place: subfolders and (inside a folder) cards.
@@ -31,6 +33,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   List<Folder> _folders = [];
   List<Flashcard> _cards = [];
   bool _loading = true;
+  bool _failed = false; // true if reading the database failed
 
   bool get _isRoot => widget.parent == null;
 
@@ -42,16 +45,25 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   /// Reads folders (and cards, if we're inside a folder) and redraws.
   Future<void> _load() async {
-    final folders = await _folderRepo.getChildren(widget.parent?.id);
-    final cards = _isRoot
-        ? <Flashcard>[]
-        : await _cardRepo.getForFolder(widget.parent!.id);
-    if (!mounted) return;
-    setState(() {
-      _folders = folders;
-      _cards = cards;
-      _loading = false;
-    });
+    try {
+      final folders = await _folderRepo.getChildren(widget.parent?.id);
+      final cards = _isRoot
+          ? <Flashcard>[]
+          : await _cardRepo.getForFolder(widget.parent!.id);
+      if (!mounted) return;
+      setState(() {
+        _folders = folders;
+        _cards = cards;
+        _loading = false;
+        _failed = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _failed = true;
+        _loading = false;
+      });
+    }
   }
 
   // ---------- folder actions ----------
@@ -162,6 +174,30 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
+  // ---------- search, backup, restore ----------
+
+  Future<void> _search() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const SearchScreen()),
+    );
+    _load(); // things may have changed while searching
+  }
+
+  Future<void> _backup() => runBackup(context);
+
+  Future<void> _restore() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final restored = await runRestore(context);
+    if (!restored || !mounted) return;
+    // Rebuild the app from a fresh home screen, so nothing stale is left.
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LibraryScreen()),
+      (route) => false,
+    );
+    messenger.showSnackBar(const SnackBar(content: Text('Backup restored')));
+  }
+
   // ---------- helpers ----------
 
   /// A reusable Cancel / Delete popup. Returns true if the user confirmed.
@@ -226,15 +262,38 @@ class _LibraryScreenState extends State<LibraryScreen> {
       appBar: AppBar(
         title: Text(widget.parent?.name ?? 'Flashcards'),
         actions: [
+          // Only show Study when we're in a folder that has cards.
           if (!_isRoot && _cards.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.only(right: 12),
+              padding: const EdgeInsets.only(right: 4),
               child: FilledButton.icon(
                 onPressed: _study,
                 icon: const Icon(Icons.play_arrow_rounded),
                 label: const Text('Study'),
               ),
             ),
+          IconButton(
+            tooltip: 'Search',
+            icon: const Icon(Icons.search_rounded),
+            onPressed: _search,
+          ),
+          // Backup and restore live on the home screen only.
+          if (_isRoot)
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert_rounded),
+              onSelected: (value) {
+                if (value == 'backup') _backup();
+                if (value == 'restore') _restore();
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 'backup', child: Text('Back up data')),
+                PopupMenuItem(
+                  value: 'restore',
+                  child: Text('Restore from backup'),
+                ),
+              ],
+            ),
+          const SizedBox(width: 4),
         ],
       ),
       body: _buildBody(),
@@ -255,6 +314,34 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Widget _buildBody() {
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
+    }
+
+    // Reading the database failed: say so (don't pretend it's empty).
+    if (_failed) {
+      return Column(
+        children: [
+          const Expanded(
+            child: EmptyState(
+              icon: Icons.error_outline_rounded,
+              title: 'Couldn\'t load your data',
+              message: 'Something went wrong while reading\nthe database.',
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+            child: SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: () {
+                  setState(() => _loading = true);
+                  _load();
+                },
+                child: const Text('Try again'),
+              ),
+            ),
+          ),
+        ],
+      );
     }
 
     if (_folders.isEmpty && _cards.isEmpty) {
@@ -357,7 +444,13 @@ class _FolderTile extends StatelessWidget {
           ),
           child: const Icon(Icons.folder_rounded, color: AppColors.primary),
         ),
-        title: Text(folder.name, style: textTheme.titleMedium),
+        // A very long name is cut with "..." instead of stretching the row.
+        title: Text(
+          folder.name,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: textTheme.titleMedium,
+        ),
         subtitle: Text(
           n == 0 ? 'No subfolders' : (n == 1 ? '1 subfolder' : '$n subfolders'),
           style: textTheme.bodyMedium?.copyWith(color: AppColors.textMuted),
@@ -379,7 +472,6 @@ class _FolderTile extends StatelessWidget {
 }
 
 /// One card row: an icon, the card's name (no answer shown) and a menu.
-/// Text cards are named by their question; image cards by their title.
 class _CardTile extends StatelessWidget {
   const _CardTile({
     required this.card,
@@ -393,15 +485,6 @@ class _CardTile extends StatelessWidget {
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
-  /// The name shown for this card.
-  String get _name {
-    if (!card.isImage) return RichTextCodec.plainText(card.front);
-    // Image cards store their title (plain text) in 'front'. Older image
-    // cards have none, so they fall back to "Image card".
-    final title = card.front.trim();
-    return title.isEmpty ? 'Image card' : title;
-  }
-
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
@@ -411,8 +494,6 @@ class _CardTile extends StatelessWidget {
       child: ListTile(
         onTap: onTap,
         contentPadding: const EdgeInsets.fromLTRB(16, 6, 8, 6),
-        // The same soft blue square for both kinds of card. Only the icon
-        // differs: a card for text cards, a picture for image cards.
         leading: Container(
           width: 44,
           height: 44,
@@ -426,7 +507,7 @@ class _CardTile extends StatelessWidget {
           ),
         ),
         title: Text(
-          _name,
+          RichTextCodec.cardTitle(card),
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
           style: textTheme.titleMedium,

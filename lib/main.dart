@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_quill/flutter_quill.dart' show FlutterQuillLocalizations;
 
@@ -9,6 +10,9 @@ import 'theme/app_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Keep the app upright. The editors and study card are designed for
+  // portrait. Delete this line to allow rotation again.
+  await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   // Re-load imported fonts and prepare the folder that holds card images.
   await FontService.instance.init();
   await ImageStore.instance.init();

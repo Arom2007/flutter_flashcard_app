@@ -9,6 +9,7 @@ import '../data/image_store.dart';
 import '../models/flashcard.dart';
 import '../models/image_overlay.dart';
 import '../theme/app_theme.dart';
+import '../widgets/confirm_discard.dart';
 import '../widgets/overlay_text.dart';
 
 enum _Tool { boxes, text }
@@ -47,14 +48,19 @@ class _ImageCardEditorScreenState extends State<ImageCardEditorScreen> {
   int? _selBox; // index of the selected box
   int? _selText; // index of the selected text
 
+  // True while saving, so a second tap on Save does nothing.
+  bool _saving = false;
+
+  // What the card looked like when this screen opened (for "unsaved
+  // changes?" checks).
+  late final String _initialSignature;
+
   // Drag bookkeeping for the Boxes tool.
   _Drag _drag = _Drag.none;
   Offset _dragStart = Offset.zero; // where the finger went down (fractions)
   Rect _origRect = Rect.zero; // the box as it was when a move began
   Offset _anchor = Offset.zero; // the fixed corner while resizing
 
-  // How close (in pixels) a finger must be to a corner dot to grab it,
-  // and the smallest box we keep.
   static const _grabRadius = 28.0;
   static const _minBoxPx = 20.0;
 
@@ -88,14 +94,21 @@ class _ImageCardEditorScreenState extends State<ImageCardEditorScreen> {
       // New card: open the gallery straight away (after the first frame).
       WidgetsBinding.instance.addPostFrameCallback((_) => _pickImage());
     }
+    _initialSignature = _signature();
   }
 
-  // Free the title box's memory when the screen closes.
   @override
   void dispose() {
     _title.dispose();
     super.dispose();
   }
+
+  /// The title, boxes and text as one string. If it differs from the
+  /// starting value, the user has unsaved changes.
+  String _signature() =>
+      '${_title.text}|${ImageOverlay(aspect: 1, boxes: _boxes, texts: _texts).toJsonString()}';
+
+  bool get _hasChanges => _signature() != _initialSignature;
 
   void _message(String text) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
@@ -124,25 +137,38 @@ class _ImageCardEditorScreenState extends State<ImageCardEditorScreen> {
   }
 
   Future<void> _save() async {
+    if (_saving) return;
     if (_imageFile == null) {
       _message('Please choose an image first');
       return;
     }
 
-    final title = _title.text.trim(); // can be empty: the list shows "Image card"
+    setState(() => _saving = true);
 
+    final title = _title.text.trim(); // can be empty: the list shows "Image card"
     final json = ImageOverlay(
       aspect: _aspect,
       boxes: List.of(_boxes),
       texts: List.of(_texts),
     ).toJsonString();
 
-    if (_isEditing) {
-      await _repo.updateImageCard(widget.card!.id, title, json);
-    } else {
-      // Only now is the picture copied into the app's own folder.
-      final name = await ImageStore.instance.save(_pickedPath!);
-      await _repo.createImageCard(widget.folderId, title, name, json);
+    String? savedName; // the copied picture, if we made one
+    try {
+      if (_isEditing) {
+        await _repo.updateImageCard(widget.card!.id, title, json);
+      } else {
+        // Only now is the picture copied into the app's own folder.
+        savedName = await ImageStore.instance.save(_pickedPath!);
+        await _repo.createImageCard(widget.folderId, title, savedName, json);
+      }
+    } catch (_) {
+      // Don't leave a picture behind that no card uses.
+      if (savedName != null) await ImageStore.instance.delete(savedName);
+      if (mounted) {
+        setState(() => _saving = false);
+        _message('Couldn\'t save the card. Is your storage full?');
+      }
+      return;
     }
 
     if (!mounted) return;
@@ -320,21 +346,31 @@ class _ImageCardEditorScreenState extends State<ImageCardEditorScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(_isEditing ? 'Edit image card' : 'New image card'),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: FilledButton(
-              onPressed: _save,
-              child: Text(_isEditing ? 'Save' : 'Add'),
+    // Going back with unsaved changes asks first.
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        if (!_hasChanges || await confirmDiscard(context)) {
+          if (mounted) Navigator.pop(context);
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(_isEditing ? 'Edit image card' : 'New image card'),
+          actions: [
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: FilledButton(
+                onPressed: _saving ? null : _save,
+                child: Text(_isEditing ? 'Save' : 'Add'),
+              ),
             ),
-          ),
-        ],
-      ),
-      body: SafeArea(
-        child: _imageFile == null ? _buildPicker() : _buildEditor(),
+          ],
+        ),
+        body: SafeArea(
+          child: _imageFile == null ? _buildPicker() : _buildEditor(),
+        ),
       ),
     );
   }
@@ -378,7 +414,7 @@ class _ImageCardEditorScreenState extends State<ImageCardEditorScreen> {
           child: TextField(
             controller: _title,
             maxLines: 1,
-            textInputAction: TextInputAction.done, // keyboard "done" key
+            textInputAction: TextInputAction.done,
             textCapitalization: TextCapitalization.sentences,
             decoration: const InputDecoration(
               hintText: 'Title (shown in the folder list)',
@@ -462,11 +498,8 @@ class _ImageCardEditorScreenState extends State<ImageCardEditorScreen> {
 
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
-          // 'down' = report the exact spot where the finger touched, not
-          // where it had moved to after the drag was recognised.
           dragStartBehavior: DragStartBehavior.down,
           onTapUp: (d) => _onTapUp(d.localPosition, size),
-          // Drag handlers only exist in Boxes mode (null = switched off).
           onPanStart: boxMode ? (d) => _onPanStart(d.localPosition, size) : null,
           onPanUpdate:
               boxMode ? (d) => _onPanUpdate(d.localPosition, size) : null,
@@ -479,6 +512,16 @@ class _ImageCardEditorScreenState extends State<ImageCardEditorScreen> {
                   _imageFile!,
                   fit: BoxFit.fill,
                   gaplessPlayback: true,
+                  // If the file is missing or unreadable, show a calm
+                  // placeholder instead of a red error box.
+                  errorBuilder: (_, __, ___) => Container(
+                    color: AppColors.primarySoft,
+                    child: const Icon(
+                      Icons.broken_image_rounded,
+                      color: AppColors.primary,
+                      size: 40,
+                    ),
+                  ),
                 ),
               ),
 
@@ -511,8 +554,6 @@ class _ImageCardEditorScreenState extends State<ImageCardEditorScreen> {
                     painter: _BoxPainter(
                       boxes: _boxes,
                       selected: _selBox,
-                      // See-through while editing, so you can see what's
-                      // underneath. Even fainter in Text mode.
                       opacity: boxMode ? 0.72 : 0.3,
                       showHandles: boxMode,
                     ),

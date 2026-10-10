@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:flutter_quill/flutter_quill.dart' show Document;
 
+import '../models/flashcard.dart';
+
 /// Converts between what's stored in the database (a text string) and the
 /// Quill "Document" the editor works with.
 ///
@@ -27,7 +29,36 @@ class RichTextCodec {
   /// Document -> string to save in the database.
   static String encode(Document doc) => jsonEncode(doc.toDelta().toJson());
 
-  /// Just the words, with no formatting. Used for list previews.
-  static String plainText(String stored) =>
-      toDocument(stored).toPlainText().trim();
+  /// Just the words, with no formatting. Used for list names and search.
+  /// This reads the JSON directly instead of building a Document, which
+  /// makes it much faster for long cards.
+  static String plainText(String stored) {
+    try {
+      final decoded = jsonDecode(stored);
+      if (decoded is List &&
+          decoded.isNotEmpty &&
+          decoded.every((op) => op is Map && op.containsKey('insert'))) {
+        final buffer = StringBuffer();
+        for (final op in decoded) {
+          final insert = (op as Map)['insert'];
+          if (insert is String) buffer.write(insert); // skip embeds
+        }
+        return buffer.toString().trim();
+      }
+    } catch (_) {
+      // Not JSON: it's an old plain-text card.
+    }
+    return stored.trim();
+  }
+
+  /// The name shown for a card in lists: the question for text cards,
+  /// the title for image cards.
+  static String cardTitle(Flashcard card) {
+    if (card.isImage) {
+      final title = card.front.trim();
+      return title.isEmpty ? 'Image card' : title;
+    }
+    final text = plainText(card.front);
+    return text.isEmpty ? 'Untitled card' : text;
+  }
 }

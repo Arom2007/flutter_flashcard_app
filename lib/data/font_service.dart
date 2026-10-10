@@ -3,18 +3,16 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/services.dart' show FontLoader;
-import 'package:path/path.dart' as p; // 'as p' = we write p.join(...), p.extension(...)
+import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 /// Keeps track of fonts the user imported. Font files are copied into the
 /// app's private folder, and registered with Flutter so text can use them.
-/// One shared instance, like DatabaseHelper.
 class FontService {
   FontService._();
 
   static final FontService instance = FontService._();
 
-  // Names of the fonts that are loaded and ready to use.
   final List<String> _families = [];
 
   /// The imported font names (read-only copy).
@@ -26,7 +24,6 @@ class FontService {
     return ext == '.ttf' || ext == '.otf';
   }
 
-  /// The private "fonts" folder inside the app's storage (created if missing).
   Future<Directory> _fontsDirectory() async {
     final docs = await getApplicationDocumentsDirectory();
     final dir = Directory(p.join(docs.path, 'fonts'));
@@ -34,13 +31,13 @@ class FontService {
     return dir;
   }
 
-  /// Called once when the app starts: loads every font saved earlier.
+  /// Called when the app starts: loads every font saved earlier.
   Future<void> init() async {
     try {
       final dir = await _fontsDirectory();
       final files = dir
           .listSync()
-          .whereType<File>() // keep only files (not sub-folders)
+          .whereType<File>()
           .where((f) => _isFontName(f.path))
           .toList()
         ..sort((a, b) => a.path.compareTo(b.path));
@@ -52,15 +49,17 @@ class FontService {
     }
   }
 
-  /// Teaches Flutter about one font file. Returns its name, or null if the
-  /// file couldn't be loaded.
+  /// Forgets the list and loads the fonts again (used after a restore,
+  /// when the fonts folder has been replaced).
+  Future<void> reload() async {
+    _families.clear();
+    await init();
+  }
+
   Future<String?> _register(File file) async {
-    // The font's name is the file name without ".ttf", e.g. "Lobster-Regular".
     final family = p.basenameWithoutExtension(file.path);
     try {
       final bytes = await file.readAsBytes();
-      // FontLoader registers font data under a name. After load(), any
-      // TextStyle(fontFamily: family) in the whole app can use it.
       final loader = FontLoader(family)
         ..addFont(Future.value(ByteData.sublistView(bytes)));
       await loader.load();
@@ -75,10 +74,8 @@ class FontService {
   /// Returns the font's name, or null if the user cancelled.
   /// Throws a FormatException (with a readable message) if the file is bad.
   Future<String?> importFont() async {
-    // We accept any file type here and check the extension ourselves,
-    // because Android's picker doesn't recognise font types reliably.
     final picked = await FilePicker.pickFiles(type: FileType.any);
-    if (picked.isEmpty) return null; // user backed out
+    if (picked.isEmpty) return null;
 
     final file = picked.first;
     if (!_isFontName(file.name)) {
@@ -90,13 +87,13 @@ class FontService {
     }
 
     final family = p.basenameWithoutExtension(file.name);
-    if (_families.contains(family)) return family; // already imported
+    if (_families.contains(family)) return family;
 
     final dir = await _fontsDirectory();
     final copy = await File(sourcePath).copy(p.join(dir.path, file.name));
     final registered = await _register(copy);
     if (registered == null) {
-      await copy.delete(); // don't keep a broken font
+      await copy.delete();
       throw const FormatException('That font file couldn\'t be loaded.');
     }
     return registered;

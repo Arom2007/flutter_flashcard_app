@@ -31,6 +31,10 @@ class _StudyScreenState extends State<StudyScreen> {
   // Becomes true once the user has flipped a TEXT card to its answer.
   bool _answerSeen = false;
 
+  // Set to true the first time the session ends, so a second quick press
+  // of "back" can't open the summary screen twice.
+  bool _finishing = false;
+
   void _rate(Rating rating) {
     setState(() {
       _session.rate(rating);
@@ -54,6 +58,8 @@ class _StudyScreenState extends State<StudyScreen> {
 
   /// Ends the study session: stops the stopwatch and shows the summary.
   void _finish() {
+    if (_finishing) return;
+    _finishing = true;
     _stopwatch.stop();
     Navigator.pushReplacement(
       context,
